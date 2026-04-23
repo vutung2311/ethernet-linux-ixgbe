@@ -1270,6 +1270,7 @@ s32 ixgbe_identify_sfp_module_generic(struct ixgbe_hw *hw)
 	u8 oui_bytes[3] = {0, 0, 0};
 	u8 cable_tech = 0;
 	u8 cable_spec = 0;
+	u8 br_nom = 0;
 	u16 enforce_sfp = 0;
 
 	DEBUGFUNC("ixgbe_identify_sfp_module_generic");
@@ -1310,6 +1311,13 @@ s32 ixgbe_identify_sfp_module_generic(struct ixgbe_hw *hw)
 		status = hw->phy.ops.read_i2c_eeprom(hw,
 						     IXGBE_SFF_CABLE_TECHNOLOGY,
 						     &cable_tech);
+
+		if (status != IXGBE_SUCCESS)
+			goto err_read_i2c_eeprom;
+
+		status = hw->phy.ops.read_i2c_eeprom(hw,
+						     IXGBE_SFF_BITRATE_NOMINAL,
+						     &br_nom);
 
 		if (status != IXGBE_SUCCESS)
 			goto err_read_i2c_eeprom;
@@ -1387,6 +1395,13 @@ s32 ixgbe_identify_sfp_module_generic(struct ixgbe_hw *hw)
 					hw->phy.sfp_type =
 						ixgbe_sfp_type_1g_sx_core1;
 			} else if (comp_codes_1g & IXGBE_SFF_1GBASELX_CAPABLE) {
+				if (hw->bus.lan_id == 0)
+					hw->phy.sfp_type =
+						ixgbe_sfp_type_1g_lx_core0;
+				else
+					hw->phy.sfp_type =
+						ixgbe_sfp_type_1g_lx_core1;
+			} else if (br_nom >= 12 && br_nom <= 13) {
 				if (hw->bus.lan_id == 0)
 					hw->phy.sfp_type =
 						ixgbe_sfp_type_1g_lx_core0;
