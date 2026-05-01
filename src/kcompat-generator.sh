@@ -116,6 +116,7 @@ function gen-devlink() {
 	gen HAVE_DEVLINK_PARAMS if method validate of devlink_param matches extack in "$dh"
 	gen HAVE_DEVLINK_PARAMS_GET_EXTACK if method get of devlink_param matches extack in "$dh"
 	gen HAVE_DEVLINK_PARAMS_PUBLISH if fun devlink_params_publish in "$dh"
+	gen HAVE_DEVLINK_PARAMS_GET_EXTACK if method get of devlink_param matches extack in "$dh"
 	gen HAVE_DEVLINK_PARAMS_SET_EXTACK if method set of devlink_param matches extack in "$dh"
 	gen HAVE_DEVLINK_PORT_NEW if method port_new of devlink_ops in "$dh"
 	gen HAVE_DEVLINK_PORT_OPS if struct devlink_port_ops in "$dh"

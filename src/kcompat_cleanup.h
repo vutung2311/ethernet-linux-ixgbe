@@ -200,6 +200,10 @@ __DEFINE_LOCK_GUARD_0(_name, _lock)
  */
 
 #include <linux/mutex.h>
+/* On kernel 7.0+, cleanup.h generates these types internally via
+ * DEFINE_GUARD/DEFINE_FREE expansions; re-defining them causes conflicts.
+ * Use LINUX_VERSION_CODE as a hard guard in addition to the NEED_ flags. */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0)
 #ifdef NEED_DEFINE_GUARD_MUTEX
 DEFINE_GUARD(mutex, struct mutex *, mutex_lock(_T), mutex_unlock(_T))
 #endif
@@ -212,6 +216,9 @@ DEFINE_FREE(kfree, void *, if (!IS_ERR_OR_NULL(_T)) kfree(_T))
 void kvfree(const void *);
 DEFINE_FREE(kvfree, void *, if (!IS_ERR_OR_NULL(_T)) kvfree(_T))
 #endif
+#else
+#include <linux/slab.h>
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(7, 0, 0) */
 
 #include <linux/spinlock.h>
 /* COND guards omitted */
