@@ -397,7 +397,7 @@ s32 ixgbe_get_link_capabilities_82599(struct ixgbe_hw *hw,
 	    hw->phy.sfp_type == ixgbe_sfp_type_1g_sx_core0 ||
 	    hw->phy.sfp_type == ixgbe_sfp_type_1g_sx_core1) {
 		*speed = IXGBE_LINK_SPEED_1GB_FULL;
-		*autoneg = true;
+		*autoneg = !hw->phy.sfp_1g_no_an;
 		goto out;
 	}
 
@@ -642,11 +642,17 @@ out:
  **/
 void ixgbe_disable_tx_laser_multispeed_fiber(struct ixgbe_hw *hw)
 {
-	u32 esdp_reg = IXGBE_READ_REG(hw, IXGBE_ESDP);
+	u32 esdp_reg;
 
 	/* Blocked by MNG FW so bail */
 	if (ixgbe_check_reset_blocked(hw))
 		return;
+
+	/* Do not disable Tx laser on 1G SFP / GPON sticks to prevent module sleep / freeze */
+	if (ixgbe_is_1g_sfp(hw))
+		return;
+
+	esdp_reg = IXGBE_READ_REG(hw, IXGBE_ESDP);
 
 	/* Disable Tx laser; allow 100us to go dark per spec */
 	esdp_reg |= IXGBE_ESDP_SDP3;
@@ -692,6 +698,10 @@ void ixgbe_flap_tx_laser_multispeed_fiber(struct ixgbe_hw *hw)
 
 	/* Blocked by MNG FW so bail */
 	if (ixgbe_check_reset_blocked(hw))
+		return;
+
+	/* Do not flap Tx laser on 1G SFP / GPON sticks */
+	if (ixgbe_is_1g_sfp(hw))
 		return;
 
 	if (hw->mac.autotry_restart) {

@@ -1254,6 +1254,25 @@ s32 ixgbe_identify_module_generic(struct ixgbe_hw *hw)
 }
 
 /**
+ * ixgbe_is_1g_sfp - check if the identified SFP module is a 1G module
+ * @hw: pointer to hardware structure
+ **/
+bool ixgbe_is_1g_sfp(struct ixgbe_hw *hw)
+{
+	switch (hw->phy.sfp_type) {
+	case ixgbe_sfp_type_1g_lx_core0:
+	case ixgbe_sfp_type_1g_lx_core1:
+	case ixgbe_sfp_type_1g_sx_core0:
+	case ixgbe_sfp_type_1g_sx_core1:
+	case ixgbe_sfp_type_1g_cu_core0:
+	case ixgbe_sfp_type_1g_cu_core1:
+		return true;
+	default:
+		return false;
+	}
+}
+
+/**
  * ixgbe_identify_sfp_module_generic - Identifies SFP modules
  * @hw: pointer to hardware structure
  *

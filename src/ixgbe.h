@@ -857,6 +857,9 @@ struct ixgbe_therm_proc_data {
 /* default to trying for four seconds */
 #define IXGBE_TRY_LINK_TIMEOUT	(4 * HZ)
 #define IXGBE_SFP_POLL_JIFFIES	(2 * HZ)	/* SFP poll every 2 seconds */
+#define IXGBE_SFP_RELINK_TIMEOUT	(10 * HZ) /* re-init 1G SFP link while down */
+#define IXGBE_SFP_AN_ERR_THRESH	2  /* AN-error samples before dropping AN */
+#define IXGBE_SFP_NO_AN_MAX_TRIES	3  /* no-AN re-inits before restoring AN */
 
 #define IXGBE_PRIMARY_ABORT_LIMIT	5
 
@@ -1122,6 +1125,9 @@ struct ixgbe_adapter {
 
 	unsigned long sfp_poll_time;
 	unsigned long link_check_timeout;
+	u32 sfp_relink_count;
+	u32 sfp_an_err_count;
+	u32 sfp_no_an_tries;
 
 	struct timer_list service_timer;
 	struct work_struct service_task;

@@ -5,8 +5,10 @@
  Copyright (c)2006 - 2007 Myricom, Inc. for some LRO specific code
 ******************************************************************************/
 #include "ixgbe.h"
+#include "ixgbe_phy.h"
 
 #include <linux/types.h>
+#include <linux/log2.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/netdevice.h>
@@ -10317,7 +10319,10 @@ static void ixgbe_watchdog_update_link(struct ixgbe_adapter *adapter)
 	bool link_up = adapter->link_up;
 	bool pfc_en = adapter->dcb_cfg.pfc_mode_enable;
 
-	if (!(adapter->flags & IXGBE_FLAG_NEED_LINK_UPDATE))
+	/* Keep polling while the link is down so slow-booting SFPs (e.g. GPON
+	 * ONUs) are picked up once they finish booting.
+	 */
+	if (!(adapter->flags & IXGBE_FLAG_NEED_LINK_UPDATE) && adapter->link_up)
 		return;
 
 	if (hw->mac.ops.check_link) {
@@ -10795,6 +10800,7 @@ static void ixgbe_sfp_detection_subtask(struct ixgbe_adapter *adapter)
 		/* If no cable is present, then we need to reset
 		 * the next time we find a good cable. */
 		adapter->flags2 |= IXGBE_FLAG2_SFP_NEEDS_RESET;
+		hw->phy.sfp_1g_no_an = false;
 	}
 
 	/* exit on error */
@@ -10875,6 +10881,86 @@ static void ixgbe_sfp_link_config_subtask(struct ixgbe_adapter *adapter)
 	adapter->flags |= IXGBE_FLAG_NEED_LINK_UPDATE;
 	adapter->link_check_timeout = jiffies;
 	clear_bit(__IXGBE_IN_SFP_INIT, adapter->state);
+}
+
+/**
+ * ixgbe_sfp_1g_relink_subtask - recover a 1G SFP link that stays down
+ * @adapter: the ixgbe adapter structure
+ *
+ * GPON ONU sticks boot for 15-60s after the host has set up the link. If
+ * they come up after the PCS gave up on clause-37 AN, LINKS stays down until
+ * the link is set up again, so redo SFP and link setup while it is down.
+ *
+ * Some sticks also answer AN with a page the 82599 rejects (in sync, AN
+ * complete with error, no link), which no re-init clears. Only when that
+ * exact state survives a full re-init, fall back to 1000BASE-X without AN,
+ * and restore AN if that does not bring the link up either.
+ **/
+static void ixgbe_sfp_1g_relink_subtask(struct ixgbe_adapter *adapter)
+{
+	const u32 an_err = IXGBE_PCS1GLSTA_SYNK_OK |
+			   IXGBE_PCS1GLSTA_AN_COMPLETE |
+			   IXGBE_PCS1GLSTA_AN_PAGE_RX |
+			   IXGBE_PCS1GLSTA_AN_ERROR_RWS;
+	struct ixgbe_hw *hw = &adapter->hw;
+	u32 pcs;
+
+	if (hw->mac.type != ixgbe_mac_82599EB || !ixgbe_is_1g_sfp(hw))
+		return;
+
+	if (test_bit(__IXGBE_DOWN, adapter->state) ||
+	    test_bit(__IXGBE_REMOVING, adapter->state) ||
+	    test_bit(__IXGBE_RESETTING, adapter->state))
+		return;
+
+	if (adapter->link_up) {
+		adapter->sfp_relink_count = 0;
+		adapter->sfp_an_err_count = 0;
+		return;
+	}
+
+	if ((adapter->flags & IXGBE_FLAG_NEED_LINK_CONFIG) ||
+	    (adapter->flags2 & IXGBE_FLAG2_SFP_NEEDS_RESET) ||
+	    time_before(jiffies, adapter->link_check_timeout +
+				 IXGBE_SFP_RELINK_TIMEOUT))
+		return;
+
+	pcs = IXGBE_READ_REG(hw, IXGBE_PCS1GLSTA);
+	adapter->sfp_relink_count++;
+
+	/* log the 1st, 2nd, 4th, 8th... retry to keep dmesg quiet */
+	if (is_power_of_2(adapter->sfp_relink_count))
+		e_info(drv, "1G SFP link down, re-init #%u%s: LINKS 0x%08x PCS1GLSTA 0x%08x PCS1GANLP 0x%08x AUTOC 0x%08x ESDP 0x%08x\n",
+		       adapter->sfp_relink_count,
+		       hw->phy.sfp_1g_no_an ? " (no AN)" : "",
+		       IXGBE_READ_REG(hw, IXGBE_LINKS), pcs,
+		       IXGBE_READ_REG(hw, IXGBE_PCS1GANLP),
+		       IXGBE_READ_REG(hw, IXGBE_AUTOC),
+		       IXGBE_READ_REG(hw, IXGBE_ESDP));
+
+	if (!hw->phy.sfp_1g_no_an) {
+		if ((pcs & (an_err | IXGBE_PCS1GLSTA_LINK_OK)) == an_err)
+			adapter->sfp_an_err_count++;
+		else
+			adapter->sfp_an_err_count = 0;
+
+		if (adapter->sfp_an_err_count >= IXGBE_SFP_AN_ERR_THRESH) {
+			e_warn(drv, "1G SFP partner rejects clause-37 AN (PCS1GANLP 0x%08x), using 1000BASE-X without AN\n",
+			       IXGBE_READ_REG(hw, IXGBE_PCS1GANLP));
+			hw->phy.sfp_1g_no_an = true;
+			adapter->sfp_an_err_count = 0;
+			adapter->sfp_no_an_tries = 0;
+		}
+	} else if (++adapter->sfp_no_an_tries > IXGBE_SFP_NO_AN_MAX_TRIES) {
+		e_warn(drv, "1G SFP still down without AN, restoring clause-37 AN\n");
+		hw->phy.sfp_1g_no_an = false;
+	}
+
+	if (hw->mac.ops.enable_tx_laser)
+		hw->mac.ops.enable_tx_laser(hw);
+	adapter->link_check_timeout = jiffies;
+	adapter->flags2 |= IXGBE_FLAG2_SFP_NEEDS_RESET;
+	adapter->sfp_poll_time = 0;
 }
 
 /**
@@ -11055,6 +11141,7 @@ static void ixgbe_service_task(struct work_struct *work)
 	ixgbe_sfp_link_config_subtask(adapter);
 	ixgbe_check_overtemp_subtask(adapter);
 	ixgbe_watchdog_subtask(adapter);
+	ixgbe_sfp_1g_relink_subtask(adapter);
 #ifdef HAVE_TX_MQ
 	ixgbe_fdir_reinit_subtask(adapter);
 #endif

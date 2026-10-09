@@ -4113,6 +4113,7 @@ struct ixgbe_phy_info {
 	enum ixgbe_smart_speed smart_speed;
 	bool smart_speed_active;
 	bool multispeed_fiber;
+	bool sfp_1g_no_an; /* 1G SFP: 1000BASE-X without clause-37 AN */
 	bool reset_if_overtemp;
 	bool qsfp_shared_i2c_bus;
 	u32 nw_mng_if_sel;
